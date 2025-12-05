@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width">
+    <style>
+    html,
+    body,
+    #container {
+      width: 100%;
+      height: 100%;
+      margin:0;
+    }
+    /* 信息弹窗样式 */
+    #infoWindow {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      z-index: 1000;
+      min-width: 250px;
+      display: none;
+      font-family: Arial, sans-serif;
+    }
+    #infoWindow h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 16px;
+    }
+    #infoWindow p {
+      margin: 5px 0;
+      color: #666;
+      font-size: 14px;
+    }
+    #infoWindow .close-btn {
+      position: absolute;
+      top: 5px;
+      right: 10px;
+      cursor: pointer;
+      font-size: 20px;
+      color: #999;
+    }
+    #infoWindow .close-btn:hover {
+      color: #333;
+    }
+    /* 城市筛选菜单样式 */
+    #cityMenu {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: white;
+      padding: 10px 12px;
+      border-radius: 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      z-index: 1000;
+      max-height: 70%;
+      overflow-y: auto;
+      font-family: Arial, sans-serif;
+      min-width: 180px;
+    }
+    #cityMenu h3 {
+      margin: 0 0 8px 0;
+      font-size: 15px;
+      color: #333;
+    }
+    .city-item {
+      padding: 4px 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #555;
+      border-radius: 3px;
+      margin-bottom: 2px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .city-item span.count {
+      color: #999;
+      font-size: 12px;
+      margin-left: 6px;
+    }
+    .city-item:hover {
+      background-color: #f0f0f0;
+    }
+    .city-item.active {
+      background-color: #1890ff;
+      color: #fff;
+    }
+    .city-item.active span.count {
+      color: #e0e0e0;
+    }
+    </style>
+    <title>Title</title>
+    <link rel="stylesheet" href="https://a.amap.com/jsapi_demos/static/demo-center/css/demo-center.css" />
+    <script src="https://webapi.amap.com/maps?v=1.4.15&key=05274d5027e6b22978b2ade4630f3596&plugin=AMap.PolyEditor"></script>
+    <script src="https://a.amap.com/jsapi_demos/static/demo-center/js/demoutils.js"></script>
+</head>
+<body>
+<div id="container"></div>
+<div id="infoWindow">
+    <span class="close-btn" onclick="closeInfoWindow()">&times;</span>
+    <h3>商圈信息</h3>
+    <p><strong>H3 ID:</strong> <span id="info-h3"></span></p>
+    <p><strong>预估容量:</strong> <span id="info-capacity"></span></p>
+    <p><strong>预估日商:</strong> <span id="info-gmv"></span></p>
+    <p><strong>建议租金:</strong> <span id="info-rent"></span></p>
+</div>
+<div id="cityMenu">
+    <h3>城市筛选</h3>
+    <div id="cityList"></div>
+</div>
+<script type="text/javascript">
+
+    // 地图容器
+    var map = new AMap.Map("container", {
+        center: [116.400274, 39.905812],
+        zoom: 14,
+    });
+
+    // 从JSON文件读取数据
+    let gathering_point_lnglat = [];
+    let gathering_point_lnglat2 = [];
+    let gathering_point_lnglat3 = [];
+    let paths_list2 = [];
+    let paths_list3 = [];
+    let h3_info = {};  // 存储 h3 信息
+    let h3_list = [];  // 存储 h3 列表（确保顺序与 paths_list2 一致）
+    let polygon_h3_map = new Map();  // 存储多边形和 h3_id 的映射关系
+    let polygons_list2 = [];   // 存储所有新版多边形，便于按城市筛选
+    let cityCounts = {};       // 城市 -> h3 数量
+    let currentCity = 'all';   // 当前选择的城市
+
+    // 异步加载JSON数据
+    async function loadData() {
+        try {
+            const response = await fetch('h3_point_data.json');
+            const jsonData = await response.json();
+            
+            // 根据JSON中存在的字段设置变量（支持两种拼写）
+            if (jsonData.gathering_point_lnglat) {
+                gathering_point_lnglat = jsonData.gathering_point_lnglat;
+            } else if (jsonData.gathering_point_lnglat) {
+                // 支持拼写错误的字段名
+                gathering_point_lnglat = jsonData.gathing_point_lnglat;
+            }
+            if (jsonData.gathering_point_lnglat2) {
+                gathering_point_lnglat2 = jsonData.gathering_point_lnglat2;
+            }
+            if (jsonData.gathering_point_lnglat3) {
+                gathering_point_lnglat3 = jsonData.gathering_point_lnglat3;
+            }
+            if (jsonData.paths_list2) {
+                paths_list2 = jsonData.paths_list2;
+            }
+            if (jsonData.paths_list3) {
+                paths_list3 = jsonData.paths_list3;
+            }
+            if (jsonData.h3_info) {
+                h3_info = jsonData.h3_info;
+            }
+            if (jsonData.h3_list) {
+                h3_list = jsonData.h3_list;
+            }
+
+            // 构建城市筛选菜单
+            buildCityMenu();
+            
+            // 调试信息
+            console.log('gathering_point_lnglat 数据:', gathering_point_lnglat);
+            console.log('gathering_point_lnglat 数量:', gathering_point_lnglat.length);
+            console.log('h3_info 数据:', h3_info);
+            console.log('h3_list 数据:', h3_list);
+            
+            // 数据加载完成后初始化地图
+            initMap();
+        } catch (error) {
+            console.error('加载JSON数据失败:', error);
+            // 如果加载失败，使用空数组初始化
+            initMap();
+        }
+    }
+
+    // 根据 h3_info 构建城市筛选菜单
+    function buildCityMenu() {
+        const cityListEl = document.getElementById('cityList');
+        if (!cityListEl || !h3_info) return;
+
+        cityCounts = {};
+        // 统计每个城市的 h3 数量
+        for (const h3Id in h3_info) {
+            if (!Object.prototype.hasOwnProperty.call(h3_info, h3Id)) continue;
+            const info = h3_info[h3Id] || {};
+            const city = info.city || '未知城市';
+            if (!cityCounts[city]) {
+                cityCounts[city] = 0;
+            }
+            cityCounts[city] += 1;
+        }
+
+        // 清空原有内容
+        cityListEl.innerHTML = '';
+
+        // 创建“全部”选项
+        const totalCount = Object.keys(h3_info || {}).length;
+        const allItem = document.createElement('div');
+        allItem.className = 'city-item active';
+        allItem.dataset.city = 'all';
+        allItem.innerHTML = `<span>全部城市</span><span class="count">${totalCount}</span>`;
+        allItem.onclick = function () {
+            setActiveCityItem(this);
+            filterByCity('all');
+        };
+        cityListEl.appendChild(allItem);
+
+        // 创建各城市选项（按 h3 数量从多到少排序）
+        const entries = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]);
+        entries.forEach(([city, count]) => {
+            const item = document.createElement('div');
+            item.className = 'city-item';
+            item.dataset.city = city;
+            item.innerHTML = `<span>${city}</span><span class="count">${count}</span>`;
+            item.onclick = function () {
+                setActiveCityItem(this);
+                filterByCity(city);
+            };
+            cityListEl.appendChild(item);
+        });
+    }
+
+    // 设置菜单中当前激活项的样式
+    function setActiveCityItem(activeEl) {
+        const items = document.querySelectorAll('#cityList .city-item');
+        items.forEach(el => {
+            el.classList.remove('active');
+        });
+        if (activeEl) {
+            activeEl.classList.add('active');
+        }
+    }
+
+    // 根据城市筛选显示的 h3 多边形
+    function filterByCity(city) {
+        currentCity = city || 'all';
+        if (!polygon_h3_map || polygon_h3_map.size === 0) return;
+
+        const visiblePolygons = [];
+        polygon_h3_map.forEach((h3_id, polygon) => {
+            if (!polygon) return;
+            if (currentCity === 'all') {
+                setPolygonVisibility(polygon, true);
+                visiblePolygons.push(polygon);
+                return;
+            }
+            const info = h3_info[h3_id] || {};
+            const polyCity = info.city || '未知城市';
+            if (polyCity === currentCity) {
+                setPolygonVisibility(polygon, true);
+                visiblePolygons.push(polygon);
+            } else {
+                setPolygonVisibility(polygon, false);
+            }
+        });
+
+        // 根据当前可见的多边形调整视野
+        if (visiblePolygons.length > 0) {
+            map.setFitView(visiblePolygons, false, [40, 40, 40, 40]); // 添加一点 padding
+        }
+    }
+
+    // 统一控制多边形显示/隐藏
+    function setPolygonVisibility(polygon, visible) {
+        if (!polygon) return;
+        if (visible) {
+            if (!polygon.getMap()) {
+                polygon.setMap(map);
+            }
+        } else if (polygon.getMap()) {
+            polygon.setMap(null);
+        }
+    }
+
+    // 初始化地图的函数
+    function initMap() {
+        // 原有的地图初始化代码
+    polygons_list2 = []   //only-新版本-红色
+    
+    for (var i = 0; i < paths_list2.length; i++){
+        var polygon2 = new AMap.Polygon
+        ({
+        path: paths_list2[i],
+        strokeColor: "#a30b0b", strokeWeight: 6, strokeOpacity: 0.2,fillOpacity: 0.2, fillColor: '#aa701e',zIndex: 50,
+        cursor: 'pointer'  // 鼠标悬停时显示手型
+        });
+        
+        // 建立多边形和 h3_id 的映射关系
+        if (i < h3_list.length) {
+            var h3_id = h3_list[i];
+            polygon_h3_map.set(polygon2, h3_id);
+            
+            // 添加点击事件（使用闭包确保每个多边形都有正确的 h3_id）
+            (function(poly, h3) {
+                poly.on('click', function(e) {
+                    if (h3 && h3_info[h3]) {
+                        showInfoWindow(h3, h3_info[h3]);
+                    }
+                });
+            })(polygon2, h3_id);
+        }
+        
+        polygons_list2.push(polygon2);
+        map.add(polygon2);
+    }
+
+    var polygons_list3 = []   //only-旧版本-绿色
+    for (var i = 0; i < paths_list3.length; i++){
+        var polygon3 = new AMap.Polygon
+        ({
+        path: paths_list3[i],
+        strokeColor: "#0c8c19", strokeWeight: 6, strokeOpacity: 0.2,fillOpacity: 0.2, fillColor: '#3e7806',zIndex: 50
+        });
+        polygons_list3.push(polygon3);
+        map.add(polygon3);
+    }
+
+    // 渲染 gathering_point_lnglat 点位
+    let data = [];
+    if (gathering_point_lnglat && gathering_point_lnglat.length > 0) {
+        for(let i=0; i<gathering_point_lnglat.length; i++){
+            // 确保数据格式正确：[lng, lat]
+            if (Array.isArray(gathering_point_lnglat[i]) && gathering_point_lnglat[i].length >= 2) {
+                data.push({
+                    lnglat: gathering_point_lnglat[i],
+                });
+            } else {
+                console.warn('gathering_point_lnglat[' + i + '] 数据格式不正确:', gathering_point_lnglat[i]);
+            }
+        }
+        
+        if (data.length > 0) {
+            var massMarks = new AMap.MassMarks(
+                data,
+                {
+                    zIndex: 101,
+                    zooms: [3, 19],
+                    style: {
+                        anchor: new AMap.Pixel(6, 6),
+                        size: new AMap.Size(11, 11),
+                        image: 'https://webapi.amap.com/images/mass/mass0.png'
+                    }
+                });
+            massMarks.setMap(map);
+            console.log('成功渲染 gathering_point_lnglat 点位数量:', data.length);
+        } else {
+            console.warn('gathering_point_lnglat 数据为空或格式不正确');
+        }
+    } else {
+        console.warn('gathering_point_lnglat 数据不存在或为空');
+    }
+
+    let data2 = [];
+    for(let i=0;i<gathering_point_lnglat2.length;i++){
+            data2.push({
+            lnglat:gathering_point_lnglat2[i],
+        });
+        }
+
+    var massMarks2 = new AMap.MassMarks(
+    data2,
+    {
+            zIndex: 101,
+            zooms: [3, 19],
+            style: {
+                anchor: new AMap.Pixel(6, 6),
+                size: new AMap.Size(11, 11),
+                image: 'https://a.amap.com/jsapi_demos/static/demo-center/icons/dir-via-marker.png'
+            }
+        });
+        massMarks2.setMap(map);
+
+    let data3 = [];
+    for(let i=0;i<gathering_point_lnglat3.length;i++){
+            data3.push({
+            lnglat:gathering_point_lnglat3[i],
+        });
+        }
+
+    var massMarks3 = new AMap.MassMarks(
+    data3,
+    {
+            zIndex: 101,
+            zooms: [3, 19],
+            style: {
+                anchor: new AMap.Pixel(6, 6),
+                size: new AMap.Size(11, 11),
+                image: 'https://a.amap.com/jsapi_demos/static/demo-center/icons/dir-via-marker.png'
+            }
+        });
+    massMarks3.setMap(map);
+    }
+
+    // 显示信息窗口
+    function showInfoWindow(h3_id, info) {
+        document.getElementById('info-h3').textContent = h3_id || '未知';
+        document.getElementById('info-capacity').textContent = info.capacity_pred || '未知';
+        document.getElementById('info-gmv').textContent = info.gmv_pred || '未知';
+        document.getElementById('info-rent').textContent = info.rent_reference || '未知';
+        document.getElementById('infoWindow').style.display = 'block';
+    }
+    
+    // 关闭信息窗口
+    function closeInfoWindow() {
+        document.getElementById('infoWindow').style.display = 'none';
+    }
+    
+    // 点击地图其他地方时关闭信息窗口
+    map.on('click', function(e) {
+        // 如果点击的不是多边形，则关闭信息窗口
+        // 这里可以通过检查事件目标来判断，但为了简单起见，直接关闭
+        // closeInfoWindow();
+    });
+
+    // 页面加载完成后读取JSON数据
+    loadData();
+
+</script>
+</body>
+</html>
